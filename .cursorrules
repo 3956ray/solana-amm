@@ -1,0 +1,85 @@
+# Solana AMM Project Configuration
+
+## User Environment
+- **Working User**: raywork
+- **Working Directory**: /home/raywork/orderly/solana-learning/solana-amm
+- All operations and file paths are performed under user raywork
+
+## Project Environment Variables and Configuration
+
+### Solana Configuration
+- **Cluster**: localnet
+- **Wallet Path**: ~/.config/solana/id.json (under user raywork: /home/raywork/.config/solana/id.json)
+- **Program ID**: BBHVgLFdpYmd6SsCXDXqC4FT6NB1f1KXg9C7XmXFTVYS
+- **Program Name**: solana_amm
+
+### Anchor Configuration
+- **Package Manager**: yarn
+- **Registry URL**: https://api.apr.dev
+- **Test Command**: yarn run ts-mocha -p ./tsconfig.json -t 1000000 "tests/**/*.ts"
+
+### Development Tool Paths (raywork user)
+- **Solana CLI**: ~/.local/share/solana/install/active_release/bin
+- **Rust/Cargo**: ~/.cargo/bin
+- **Anchor**: Managed via avm (Anchor Version Manager)
+
+### Project Structure
+- **Program Code**: programs/solana-amm/src/
+- **Test Code**: tests/
+- **Configuration Files**: Anchor.toml, Cargo.toml, package.json
+- **Documentation**: doc/
+
+## Development Guidelines
+- Use Anchor framework for Solana program development
+- Write tests in TypeScript
+- Follow Solana account model and PDA (Program Derived Address) patterns
+- All file paths and operations are based on user raywork's home directory
+
+## Notes
+- When querying or operating, prioritize using the above configuration information to reduce unnecessary environment queries
+- File paths should use absolute paths or paths relative to the project root directory
+- Wallet and key files are located in /home/raywork/.config/solana/ directory
+
+## Error Handling and Experience Log
+
+### Error Resolution Workflow
+1. **When encountering an error, ALWAYS check `experience.log` first** to see if a similar error has been encountered before
+2. If found in experience.log, apply the documented solution
+3. If not found, resolve the error and add it to `experience.log` using the template below
+
+### Error Log Template
+Record errors in `experience.log` using this simple, LLM-readable format:
+
+```
+[ERROR_TYPE] Error Description
+Context: brief context about when/where the error occurred
+Error: key error message or error code
+Solution: step-by-step solution
+Files: relevant files or commands involved
+```
+
+### Example Error Entry Format
+```
+[RUST/CARGO] Cargo edition2024 feature not available
+Context: Building Solana program dependencies
+Error: feature `edition2024` is required but not stabilized in Cargo 1.84.0
+Solution: Update Rust toolchain or use compatible crate versions
+Files: Cargo.toml, rust-toolchain.toml
+```
+
+### Error Categories
+- `[RUST/CARGO]` - Rust compilation or Cargo dependency issues
+- `[ANCHOR]` - Anchor framework specific errors
+- `[SOLANA]` - Solana CLI or runtime errors
+- `[TEST]` - Test execution failures
+- `[BUILD]` - Build process errors
+- `[RUNTIME]` - Program runtime errors
+- `[ACCOUNT]` - Account validation or PDA errors
+- `[NETWORK]` - Network or RPC connection issues
+
+### Guidelines for Error Recording
+- Keep error descriptions concise and keyword-rich for easy matching
+- Focus on the core error message, not full stack traces
+- Include specific version numbers or environment details when relevant
+- Document the exact solution that worked, not just the problem
+- Use consistent formatting to improve LLM readability

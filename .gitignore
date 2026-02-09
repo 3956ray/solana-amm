@@ -5,3 +5,8 @@ target
 node_modules
 test-ledger
 .yarn
+
+.cursorfiles
+experience.log
+
+doc/
