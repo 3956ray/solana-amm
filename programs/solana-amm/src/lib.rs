@@ -1,6 +1,12 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::{self, Mint, Token, TokenAccount, Transfer};
+use anchor_spl::token::{self, Mint, MintTo, Token, TokenAccount, Transfer};
 use anchor_spl::associated_token::AssociatedToken;
+// 注释掉 PreciseNumber：PreciseNumber 的计算开销过大，会导致 CU (Compute Units) 溢出
+// 改用自定义的轻量级 sqrt 函数来减少计算单元消耗
+// use spl_math::precise_number::PreciseNumber;
+
+mod math;
+use math::sqrt_product_u64;
 
 declare_id!("BBHVgLFdpYmd6SsCXDXqC4FT6NB1f1KXg9C7XmXFTVYS");
 
@@ -149,6 +155,110 @@ pub mod solana_amm {
         msg!("Swap completed: {} -> {}", amount_in, amount_out);
         Ok(())
     }
+
+    pub fn add_liquidity(
+        ctx: Context<AddLiquidity>,
+        amount_a: u64,  // 用户存入的tokenA的数量
+        amount_b: u64,  // 用户存入的tokenB的数量
+    ) -> Result<()> {
+        // 先检查现在的lp_mint的总量是不是为零，如果为零就表示是此账户是第一个提供流动性的账户
+        // 因此要计算初始的lp_mint的总量，然后计算出用户需要提供多少lp_mint的token
+        // 也就是根号的delta_a * delta_b
+        let lp_mint_supply = ctx.accounts.lp_mint.supply;
+        let mut liquidity: u64 = 0;
+
+        // 构建 seeds 用于 PDA 签名
+        let auth_bump = ctx.accounts.pool_state.auth_bump;
+        let seeds: &[&[u8]] = &[
+            b"authority",
+            &[auth_bump],   
+        ];
+        let signer_seeds = &[seeds];
+        // CPI 程序复用：后续需要多次构造 CpiContext，这里统一拿到 token_program
+        let token_program = ctx.accounts.token_program.to_account_info();
+
+        if ctx.accounts.lp_mint.supply == 0 {
+            // 注释掉 PreciseNumber 的原因：CU 溢出
+            // PreciseNumber 的计算开销过大，会导致程序消耗超过 200000 CU 的限制
+            // 改用自定义的轻量级 sqrt_product_u64 函数来计算 sqrt(amount_a * amount_b)
+            // 
+            // 原代码（已注释）：
+            // let p_a = PreciseNumber::new(amount_a as u128).ok_or(AmmError::MathOverflow)?;
+            // let p_b = PreciseNumber::new(amount_b as u128).ok_or(AmmError::MathOverflow)?;
+            // let product = p_a.checked_mul(&p_b).ok_or(AmmError::MathOverflow)?;
+            // let sqrt_product = product.sqrt().ok_or(AmmError::MathOverflow)?;
+            // let initial_liquidity = sqrt_product.to_imprecise().ok_or(AmmError::MathOverflow)?;
+            
+            // 使用自定义的 sqrt 函数计算初始流动性：sqrt(amount_a * amount_b)
+            let initial_liquidity = sqrt_product_u64(amount_a, amount_b)
+                .ok_or(AmmError::MathOverflow)? as u128;
+
+            // 这里增加最小流动性
+            // 防止流动性归零攻击，这里学习uniswap会转一小部分到0地址Pubkey::default()
+            const MINIMUM_LIQUIDITY: u64 = 1000;
+            if initial_liquidity <= MINIMUM_LIQUIDITY as u128 {
+                return Err(AmmError::InitialLiquidityTooLow.into());
+            }
+            liquidity = (initial_liquidity - MINIMUM_LIQUIDITY as u128) as u64; 
+            msg!("Initial liquidity: {}", liquidity);
+
+
+            // 将铸造出来的MINIMUM_LIQUIDITY转到黑洞地址
+            let cpi_accounts_mint_to_black_hole = MintTo {
+                mint: ctx.accounts.lp_mint.to_account_info(),
+                to: ctx.accounts.black_hole_lp_ATA.to_account_info(),
+                authority: ctx.accounts.pool_authority.to_account_info(),
+            };
+            let cpi_ctx_mint_to_black_hole = CpiContext::new_with_signer(
+                token_program.clone(),
+                cpi_accounts_mint_to_black_hole,
+                signer_seeds,
+            );
+            token::mint_to(cpi_ctx_mint_to_black_hole, MINIMUM_LIQUIDITY)?;
+        } else {
+            // 这里是不为0的情况，也就是说已经存在了流动性
+            // 计算在现有的流动性池中，应该怎么计算用户应该提供多少lp_mint的token
+            // 根据两个资产的存入比例，分别计算出“如果按 A 算该给多少 LP”和“如果按 B 算该给多少 LP”，然后取其中的最小值
+            let liquidity_a = (amount_a as u128).checked_mul(lp_mint_supply as u128).ok_or(AmmError::MathOverflow)?.checked_div(ctx.accounts.token_a_vault.amount as u128).ok_or(AmmError::MathOverflow)? as u64;
+            let liquidity_b = (amount_b as u128).checked_mul(lp_mint_supply as u128).ok_or(AmmError::MathOverflow)?.checked_div(ctx.accounts.token_b_vault.amount as u128).ok_or(AmmError::MathOverflow)? as u64;
+            liquidity = liquidity_a.min(liquidity_b);
+            msg!("Liquidity: {}", liquidity);
+        }
+
+        // 现在就是用户将钱转进池子里面，所以目的地是池子的vault
+        let cpi_accounts_user_to_pool = Transfer {
+            from: ctx.accounts.user_token_a.to_account_info(),
+            to: ctx.accounts.token_a_vault.to_account_info(),
+            authority: ctx.accounts.user.to_account_info(),
+        };
+        let cpi_ctx_user_to_pool_a = CpiContext::new(token_program.clone(), cpi_accounts_user_to_pool);
+        token::transfer(cpi_ctx_user_to_pool_a, amount_a)?;
+        // b转到池子里
+        let cpi_accounts_user_to_pool_b = Transfer {
+            from: ctx.accounts.user_token_b.to_account_info(),
+            to: ctx.accounts.token_b_vault.to_account_info(),
+            authority: ctx.accounts.user.to_account_info(),
+        };
+        let cpi_ctx_user_to_pool_b = CpiContext::new(token_program.clone(), cpi_accounts_user_to_pool_b);
+        token::transfer(cpi_ctx_user_to_pool_b, amount_b)?;
+        
+
+        // 这里将用户获得的lp_mint到用户的账户
+        let cpi_accounts_mint_to_user = MintTo {
+            mint:ctx.accounts.lp_mint.to_account_info(),
+            to: ctx.accounts.user_lp_token_ATA.to_account_info(),
+            authority: ctx.accounts.pool_authority.to_account_info(),
+        };
+        let cpi_ctx_mint_to_user = CpiContext::new_with_signer(
+            token_program.clone(),
+            cpi_accounts_mint_to_user,
+            signer_seeds,
+        );
+        token::mint_to(cpi_ctx_mint_to_user, liquidity)?;
+
+        msg!("Add liquidity completed: {} -> {}", amount_a, amount_b);
+        Ok(())
+    }
 }
 
 #[derive(Accounts)]
@@ -247,6 +357,72 @@ pub struct Swap<'info> {
     pub token_program: Program<'info, Token>,
 }
 
+#[derive(Accounts)]
+pub struct AddLiquidity<'info> {
+    // 老样子pool_state跟authority都得在
+    #[account(
+        mut,
+        has_one = token_a_vault @ AmmError::InvalidVault,
+        has_one = token_b_vault @ AmmError::InvalidVault,
+        has_one = lp_mint @ AmmError::InvalidLpMint,
+    )]
+    // pub pool_state: Account<'info, PoolState>,
+    // 使用Box来优化内存使用
+    pub pool_state: Box<Account<'info, PoolState>>,
+    #[account(
+        seeds = [b"authority"],
+        bump = pool_state.auth_bump
+    )]
+    /// CHECK: 这个PDA只用作签名者，不存储数据。其地址由程序生成
+    /// 不需要 mut，因为 PDA 只用作签名者，不存储数据
+    pub pool_authority: UncheckedAccount<'info>,
+    
+    #[account(
+        mut,
+        constraint = user_token_a.mint == pool_state.token_a @ AmmError::InvalidUserToken
+    )]
+    // pub user_token_a: Account<'info, TokenAccount>,
+    pub user_token_a: Box<Account<'info, TokenAccount>>,
+    #[account(
+        mut,
+        constraint = user_token_b.mint == pool_state.token_b @ AmmError::InvalidUserToken
+    )]
+    pub user_token_b: Box<Account<'info, TokenAccount>>,
+    #[account(mut)]
+    pub token_a_vault: Box<Account<'info, TokenAccount>>,
+    #[account(mut)]
+    pub token_b_vault: Box<Account<'info, TokenAccount>>,
+
+    #[account(mut)]
+    pub user: Signer<'info>,
+    #[account(
+        mut,
+        constraint = lp_mint.key() == pool_state.lp_mint @ AmmError::InvalidLpMint
+    )]
+    pub lp_mint: Box<Account<'info, Mint>>,
+
+    #[account(
+        init_if_needed, // 如果账户不存在，则创建账户，并且如果只用init的话再次增加交易则会revert
+        payer = user,
+        associated_token::mint = lp_mint,
+        associated_token::authority = user,
+    )]
+    pub user_lp_token_ATA: Box<Account<'info, TokenAccount>>,
+
+    // 黑洞账户，用于接收用户存入的lp_mint的token
+    // 必须标记为 mut，因为在 CPI mint_to 时需要写入
+    // 验证黑洞账户的 mint 与 lp_mint 匹配
+    #[account(
+        mut,
+        constraint = black_hole_lp_ATA.mint == lp_mint.key() @ AmmError::InvalidLpMint
+    )]
+    pub black_hole_lp_ATA: Box<Account<'info, TokenAccount>>,
+
+    pub associated_token_program: Program<'info, AssociatedToken>,
+    pub system_program: Program<'info, System>,
+    pub token_program: Program<'info, Token>,
+}
+
 // 先创建一个pool的state
 // 也要存入tokenA和tokenB的Pubkey
 // 还有手续费率 
@@ -299,10 +475,14 @@ pub enum AmmError {
     InvalidFee,
     #[msg("Vault 账户地址不匹配")]
     InvalidVault,
+    #[msg("LP Mint 账户地址不匹配")]
+    InvalidLpMint,
     #[msg("用户代币账户的 Mint 与池子不匹配")]
     InvalidUserToken,
     #[msg("数学运算溢出")]
     MathOverflow,
     #[msg("滑点过大，交易已取消")]
     SlippageExceeded,
+    #[msg("初始流动性太低")]
+    InitialLiquidityTooLow,
 }

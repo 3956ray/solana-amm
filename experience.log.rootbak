@@ -1,0 +1,35 @@
+[RUST/CARGO] Cargo edition2024 feature not available
+Context: Building Solana program dependencies
+Error: feature `edition2024` is required but not stabilized in Cargo 1.84.0
+Solution: Update Rust toolchain or use compatible crate versions. Check rust-toolchain.toml for version constraints.
+Files: Cargo.toml, rust-toolchain.toml
+
+[RUST/CARGO] ark-bn254 and ark-ec dependency version conflicts
+Context: Building Anchor IDL with `anchor idl build`
+Error: can't find crate for `ark_ec`, `ark_ff`; version conflicts between ark-bn254 0.4.0 and ark-ec 0.5.0
+Solution: 1) Add `anchor-spl/idl-build` to idl-build feature in Cargo.toml; 2) Run `cargo clean` and remove Cargo.lock; 3) Rebuild dependencies
+Files: programs/solana-amm/Cargo.toml
+
+[BUILD] Permission denied when running anchor build
+Context: Running `anchor build` command
+Error: Permission denied (os error 13) - target directory and files owned by root (including target/release/.cargo-lock)
+Solution: Run `sudo chown -R raywork:raywork target` to recursively fix ownership of entire target directory. This happens when previous commands were run with sudo (e.g., cargo clean with sudo)
+Files: target/, target/release/.cargo-lock
+
+[SOLANA] Unable to read keypair file
+Context: Running `anchor test` command
+Error: Unable to read keypair file (/home/raywork/.config/solana/id.json) - file does not exist
+Solution: 1) Generate wallet: `solana-keygen new --outfile /home/raywork/.config/solana/id.json --no-bip39-passphrase --force`; 2) Fix ownership: `sudo chown raywork:raywork /home/raywork/.config/solana/id.json`; 3) Configure Solana CLI: `solana config set --keypair /home/raywork/.config/solana/id.json --url localhost`
+Files: /home/raywork/.config/solana/id.json, Anchor.toml
+
+[BUILD] Permission denied on target/release/.cargo-lock
+Context: Running `anchor test` command after previous sudo operations
+Error: failed to open: /home/raywork/orderly/solana-learning/solana-amm/target/release/.cargo-lock - Permission denied (os error 13)
+Solution: Run `sudo chown -R raywork:raywork target/` to recursively fix ownership of entire target directory. This happens when previous commands were run with sudo (e.g., cargo clean, solana-keygen with sudo)
+Files: target/release/.cargo-lock, target/
+
+[TEST] Permission denied when running anchor test
+Context: Running `anchor test` command, test suite execution fails with Permission denied
+Error: Permission denied (os error 13) - .anchor/test-ledger and .anchor/program-logs directories owned by root
+Solution: Run `sudo chown -R raywork:raywork .anchor/ target/` to fix ownership of all test-related directories. Ensure all operations run under raywork user as specified in .cursorrules
+Files: .anchor/test-ledger/, .anchor/program-logs/, target/

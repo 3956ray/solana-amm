@@ -8,7 +8,7 @@ import {
   getOrCreateAssociatedTokenAccount, 
   mintTo, 
   getAccount,
-  getAssociatedTokenAddressSync
+  getAssociatedTokenAddressSync,
 } from "@solana/spl-token";
 import { assert } from "chai";
 
