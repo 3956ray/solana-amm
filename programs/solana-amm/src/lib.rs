@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::{self, Mint, MintTo, Token, TokenAccount, Transfer};
+use anchor_spl::token::{self, Burn, Mint, MintTo, Token, TokenAccount, Transfer};
 use anchor_spl::associated_token::AssociatedToken;
 // 注释掉 PreciseNumber：PreciseNumber 的计算开销过大，会导致 CU (Compute Units) 溢出
 // 改用自定义的轻量级 sqrt 函数来减少计算单元消耗
@@ -259,6 +259,102 @@ pub mod solana_amm {
         msg!("Add liquidity completed: {} -> {}", amount_a, amount_b);
         Ok(())
     }
+
+    pub fn remove_liquidity(
+        ctx: Context<RemoveLiquidity>,
+        amount_lp: u64,
+        min_amount_a: u64,
+        min_amount_b: u64,
+    ) -> Result<()> {
+        // 这里检查用户给持有的lp_mint的token是否大于0
+        // 如果小于0则revert
+        require!(
+            ctx.accounts.user_lp_token_ATA.amount >= amount_lp,
+            AmmError::InvalidLpMint
+        );
+
+        // 然后计算用户分别获得多少token a和b
+        // 根据用户持有的token计算比例
+        // 计算公式以a为例子，就是 user_get_amount_a = user_lp_token_amount * (token_a_vault.amount / lp_mint.supply)
+        // let user_get_amount_a = ctx.accounts.user_lp_token_ATA.amount.checked_mul(ctx.accounts.token_a_vault.amount).ok_or(AmmError::MathOverflow)?.checked_div(ctx.accounts.lp_mint.supply).ok_or(AmmError::MathOverflow)? as u64;
+        // let user_get_amount_b = ctx.accounts.user_lp_token_ATA.amount.checked_mul(ctx.accounts.token_b_vault.amount).ok_or(AmmError::MathOverflow)?.checked_div(ctx.accounts.lp_mint.supply).ok_or(AmmError::MathOverflow)? as u64;
+        // 构建 seeds 用于 PDA 签名
+        let auth_bump = ctx.accounts.pool_state.auth_bump;
+        let seeds: &[&[u8]] = &[
+            b"authority",
+            &[auth_bump],   
+        ];
+        let signer_seeds = &[seeds];
+        // CPI 程序复用：后续需要多次构造 CpiContext，这里统一拿到 token_program
+        let token_program = ctx.accounts.token_program.to_account_info();
+
+        // 计算用户分别获得多少token a和b
+        // 根据用户输入的 amount_lp 计算比例
+        // 计算公式以a为例子，就是 user_get_amount_a = amount_lp * (token_a_vault.amount / lp_mint.supply)
+        // 使用 u128 进行中间计算以避免溢出
+        let user_get_amount_a = (amount_lp as u128)
+            .checked_mul(ctx.accounts.token_a_vault.amount as u128)
+            .ok_or(AmmError::MathOverflow)?
+            .checked_div(ctx.accounts.lp_mint.supply as u128)
+            .ok_or(AmmError::MathOverflow)? as u64;
+        
+        let user_get_amount_b = (amount_lp as u128)
+            .checked_mul(ctx.accounts.token_b_vault.amount as u128)
+            .ok_or(AmmError::MathOverflow)?
+            .checked_div(ctx.accounts.lp_mint.supply as u128)
+            .ok_or(AmmError::MathOverflow)? as u64;
+        
+        // 检查用户获得的token a和b是否大于最小值（滑点保护）
+        require!(
+            user_get_amount_a >= min_amount_a,
+            AmmError::SlippageExceeded
+        );
+        require!(
+            user_get_amount_b >= min_amount_b,
+            AmmError::SlippageExceeded
+        );
+
+        // 先将lp_mint的token从用户账户burn掉
+        // Burn 指令只需要 mint、from 和 authority，不需要 to 账户
+        let cpi_accounts_burn_lp_mint = Burn {
+            mint: ctx.accounts.lp_mint.to_account_info(),
+            from: ctx.accounts.user_lp_token_ATA.to_account_info(),
+            authority: ctx.accounts.user.to_account_info(),
+        };
+        let cpi_ctx_burn_lp_mint = CpiContext::new(
+            token_program.clone(), 
+            cpi_accounts_burn_lp_mint
+        );
+        token::burn(cpi_ctx_burn_lp_mint, amount_lp)?;
+
+        // 然后执行交易，也就是划转金额CPI 从vault转到user的账户
+        let cpi_accounts_vault_to_user_a = Transfer {
+            from: ctx.accounts.token_a_vault.to_account_info(),
+            to: ctx.accounts.user_token_a.to_account_info(),
+            authority: ctx.accounts.pool_authority.to_account_info(),
+        };
+        let cpi_ctx_vault_to_user_a = CpiContext::new_with_signer(
+            token_program.clone(), 
+            cpi_accounts_vault_to_user_a,
+            signer_seeds,
+        );
+        token::transfer(cpi_ctx_vault_to_user_a, user_get_amount_a)?;
+        
+        let cpi_accounts_vault_to_user_b = Transfer {
+            from: ctx.accounts.token_b_vault.to_account_info(),
+            to: ctx.accounts.user_token_b.to_account_info(),
+            authority: ctx.accounts.pool_authority.to_account_info(),
+        };
+        let cpi_ctx_vault_to_user_b = CpiContext::new_with_signer(
+            token_program.clone(), 
+            cpi_accounts_vault_to_user_b,
+            signer_seeds,
+        );
+        token::transfer(cpi_ctx_vault_to_user_b, user_get_amount_b)?;
+
+        msg!("Remove liquidity completed: {} LP -> {} A, {} B", amount_lp, user_get_amount_a, user_get_amount_b);
+        Ok(())
+    }
 }
 
 #[derive(Accounts)]
@@ -423,6 +519,66 @@ pub struct AddLiquidity<'info> {
     pub token_program: Program<'info, Token>,
 }
 
+#[derive(Accounts)]
+pub struct RemoveLiquidity<'info> {
+
+    // pool_state跟authority都得在
+    // 会变的东西，
+    // lp token会从USER_ATA burn掉
+    // 然后USER会获得tokenA和tokenB
+    // 也就是说token a和b会从pool里面转到user的账户,也就是vault转到user ata
+    #[account(
+        mut,
+        has_one = token_a_vault @ AmmError::InvalidVault,
+        has_one = token_b_vault @ AmmError::InvalidVault,
+        has_one = lp_mint @ AmmError::InvalidLpMint,
+    )]
+    pub pool_state: Box<Account<'info, PoolState>>,
+
+    #[account(
+        seeds = [b"authority"],
+        bump = pool_state.auth_bump
+    )]
+    /// CHECK: 这个PDA只用作签名者，不存储数据。其地址由程序生成
+    pub pool_authority: UncheckedAccount<'info>,
+    
+    
+    #[account(
+        mut,
+        constraint = user_token_a.mint == pool_state.token_a @ AmmError::InvalidUserToken
+    )]
+    pub user_token_a: Box<Account<'info, TokenAccount>>,
+    #[account(
+        mut,
+        constraint = user_token_b.mint == pool_state.token_b @ AmmError::InvalidUserToken
+    )]
+    pub user_token_b: Box<Account<'info, TokenAccount>>,
+    
+    #[account(mut)]
+    pub token_a_vault: Box<Account<'info, TokenAccount>>,
+    #[account(mut)]
+    pub token_b_vault: Box<Account<'info, TokenAccount>>,
+
+    #[account(mut)]
+    pub user: Signer<'info>,
+    #[account(
+        mut,
+        constraint = lp_mint.key() == pool_state.lp_mint @ AmmError::InvalidLpMint
+    )]
+    pub lp_mint: Box<Account<'info, Mint>>,
+
+    #[account(
+        mut,
+        payer = user,
+        associated_token::mint = lp_mint,
+        associated_token::authority = user,
+    )]
+    pub user_lp_token_ATA: Box<Account<'info, TokenAccount>>,
+
+    pub associated_token_program: Program<'info, AssociatedToken>,
+    pub system_program: Program<'info, System>,
+    pub token_program: Program<'info, Token>,
+}
 // 先创建一个pool的state
 // 也要存入tokenA和tokenB的Pubkey
 // 还有手续费率 

@@ -54,3 +54,4 @@ pub fn sqrt_product_u64(a: u64, b: u64) -> Option<u64> {
     let product = (a as u128).checked_mul(b as u128)?;
     sqrt_u128(product)
 }
+
