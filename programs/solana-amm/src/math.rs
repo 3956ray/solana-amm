@@ -24,12 +24,14 @@ pub fn sqrt_u128(n: u128) -> Option<u64> {
     // 使用牛顿法：x_{n+1} = (x_n + n/x_n) / 2
     // 初始值设为 n/2，但为了避免溢出，使用更安全的初始值
     let mut x = n;
-    let mut y = (x + 1) / 2;
+    let mut y = x.checked_add(1)?.checked_div(2)?;
     
     // 迭代直到收敛（最多迭代 64 次，因为 u128 最多 128 位）
     while y < x {
         x = y;
-        y = (x + n / x) / 2;
+        // 使用 checked 运算避免溢出
+        let n_div_x = n.checked_div(x)?;
+        y = x.checked_add(n_div_x)?.checked_div(2)?;
     }
     
     // 检查结果是否在 u64 范围内
