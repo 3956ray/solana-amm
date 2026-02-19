@@ -3,6 +3,7 @@ use anchor_spl::token::{self, MintTo, Transfer};
 
 use crate::contexts::AddLiquidity;
 use crate::errors::AmmError;
+use crate::math;
 use crate::math::sqrt_product_u64;
 
 /// 添加流动性到池子
@@ -31,6 +32,19 @@ pub fn add_liquidity(
     let signer_seeds = &[seeds];
     // CPI 程序复用：后续需要多次构造 CpiContext，这里统一拿到 token_program
     let token_program = ctx.accounts.token_program.to_account_info();
+
+
+    // TWAP 获取时间戳
+    let clock = Clock::get()?;
+    let current_timestamp = clock.unix_timestamp as u64;
+
+    // 调用math里面的函数来更新TWAP
+    math::update_twap(
+        &mut ctx.accounts.pool_state,
+        ctx.accounts.token_a_vault.amount,
+        ctx.accounts.token_b_vault.amount,
+        current_timestamp,
+    );
 
     if ctx.accounts.lp_mint.supply == 0 {
         // 注释掉 PreciseNumber 的原因：CU 溢出

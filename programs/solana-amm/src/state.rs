@@ -16,9 +16,11 @@ pub struct PoolState {
     pub pool_bump: u8,
     pub auth_bump: u8,
 
-    pub price_0_cumulative_last: u64,
-    pub price_1_cumulative_last: u64,
-    pub block_timestamp_last: u64,
+    
+    // --- TWAP 新增字段 ---
+    pub block_timestamp_last: u64,       // 记录上次更新的时间戳
+    pub price_a_cumulative_last: u128,  // Token A 的累计价格
+    pub price_b_cumulative_last: u128,  // Token B 的累计价格
 }
 
 impl PoolState {
@@ -28,6 +30,7 @@ impl PoolState {
         const DISCRIMINATOR: usize = 8;
         const PUBKEY_SIZE: usize = 32;
         const U64_SIZE: usize = 8;
+        const U128_SIZE: usize = 16;
         const U8_SIZE: usize = 1;
         
         DISCRIMINATOR
@@ -40,8 +43,8 @@ impl PoolState {
             .saturating_add(U64_SIZE)    // fee_denominator
             .saturating_add(U8_SIZE)     // pool_bump
             .saturating_add(U8_SIZE)     // auth_bump
-            .saturating_add(U64_SIZE)    // price_0_cumulative_last
-            .saturating_add(U64_SIZE)    // price_1_cumulative_last
+            .saturating_add(U128_SIZE)   // price_a_cumulative_last (u128)
+            .saturating_add(U128_SIZE)   // price_b_cumulative_last (u128)
             .saturating_add(U64_SIZE)    // block_timestamp_last
     }
 }

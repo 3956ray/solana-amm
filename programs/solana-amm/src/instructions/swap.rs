@@ -3,6 +3,7 @@ use anchor_spl::token::{self, Transfer};
 
 use crate::contexts::Swap;
 use crate::errors::AmmError;
+use crate::math;
 
 /// 执行代币交换
 /// 
@@ -45,6 +46,20 @@ pub fn swap(
             ctx.accounts.token_a_vault.amount,
         )
     };
+
+    // TWAP 获取时间戳
+    let clock = Clock::get()?;
+    let current_timestamp = clock.unix_timestamp as u64;
+
+    // 调用math里面的函数来更新TWAP
+    // 重要：无论交易方向如何，都必须使用 Token A 和 Token B 的原始余额
+    // 因为 update_twap 假设第一个参数是 Token A，第二个参数是 Token B
+    math::update_twap(
+        &mut ctx.accounts.pool_state,
+        ctx.accounts.token_a_vault.amount,
+        ctx.accounts.token_b_vault.amount,
+        current_timestamp,
+    );
 
     // 计算手续费和输出金额
     let fee_denominator = ctx.accounts.pool_state.fee_denominator;

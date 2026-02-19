@@ -41,7 +41,7 @@ pub mod solana_amm {
         instructions::swap(ctx, amount_in, is_a_to_b, min_amount_out)
     }
 
-    /// 添加流动性到池子
+    /// 添加liquidity到池子
     pub fn add_liquidity(
         ctx: Context<AddLiquidity>,
         amount_a: u64,
@@ -50,7 +50,7 @@ pub mod solana_amm {
         instructions::add_liquidity(ctx, amount_a, amount_b)
     }
 
-    /// 从池子移除流动性
+    /// 从池子移除liquidity
     pub fn remove_liquidity(
         ctx: Context<RemoveLiquidity>,
         amount_lp: u64,

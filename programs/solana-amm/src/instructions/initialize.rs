@@ -41,10 +41,11 @@ pub fn initialize(
     pool_state.pool_bump = ctx.bumps.pool_state;
     pool_state.auth_bump = ctx.bumps.pool_authority;
     
-    // 初始化价格累积和区块时间戳字段
-    pool_state.price_0_cumulative_last = 0;
-    pool_state.price_1_cumulative_last = 0;
-    pool_state.block_timestamp_last = 0;
+    // 初始化 TWAP 累计价格和区块的时间戳字段
+    let clock = Clock::get()?;
+    pool_state.block_timestamp_last = clock.unix_timestamp as u64;
+    pool_state.price_a_cumulative_last = 0;
+    pool_state.price_b_cumulative_last = 0;
 
     msg!("Pool initialized successfully.");
     Ok(())
