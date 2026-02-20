@@ -47,6 +47,16 @@ pub fn initialize(
     pool_state.price_a_cumulative_last = 0;
     pool_state.price_b_cumulative_last = 0;
 
+    // admin 作为创建者
+    pool_state.admin = ctx.accounts.admin.key();
+    pool_state.pending_admin = None;
+
+    // 初始设为创建者
+    pool_state.protocol_fee_recipient = ctx.accounts.admin.key();
+    // 协议分成比例，默认不开启动作，0表示关闭
+    pool_state.protocol_fee_share = 0;
+    pool_state.k_last = 0;
+
     msg!("Pool initialized successfully.");
     Ok(())
 }

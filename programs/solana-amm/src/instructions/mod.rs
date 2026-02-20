@@ -5,8 +5,12 @@ pub mod initialize;
 pub mod swap;
 pub mod add_liquidity;
 pub mod remove_liquidity;
+pub mod update_config;
+pub mod claim_admin;
 
 pub use initialize::*;
 pub use swap::*;
 pub use add_liquidity::*;
 pub use remove_liquidity::*;
+pub use update_config::*;
+pub use claim_admin::*;

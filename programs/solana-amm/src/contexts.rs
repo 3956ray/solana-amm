@@ -167,6 +167,14 @@ pub struct AddLiquidity<'info> {
     )]
     pub black_hole_lp_ATA: Box<Account<'info, TokenAccount>>,
 
+
+    #[account(
+        mut,
+        constraint = protocol_fee_recipient.owner == pool_state.protocol_fee_recipient @ AmmError::InvalidUserToken,
+        constraint = protocol_fee_recipient.mint == lp_mint.key() @ AmmError::InvalidLpMint
+    )]
+    pub protocol_fee_recipient: Account<'info, TokenAccount>,
+
     pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
     pub token_program: Program<'info, Token>,
@@ -228,7 +236,39 @@ pub struct RemoveLiquidity<'info> {
     )]
     pub user_lp_token_ATA: Box<Account<'info, TokenAccount>>,
 
+    #[account(
+        mut,
+        constraint = protocol_fee_recipient.owner == pool_state.protocol_fee_recipient @ AmmError::InvalidUserToken,
+        constraint = protocol_fee_recipient.mint == lp_mint.key() @ AmmError::InvalidLpMint
+    )]
+    pub protocol_fee_recipient: Account<'info, TokenAccount>,
+
     pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
     pub token_program: Program<'info, Token>,
+}
+
+#[derive(Accounts)]
+pub struct UpdateConfig<'info> {
+    #[account(
+        mut,
+        // 确保只有当前的 admin 能签收这笔交易
+        has_one = admin @ AmmError::Unauthorized 
+    )]
+    pub pool_state: Account<'info, PoolState>,
+    
+    pub admin: Signer<'info>,
+}
+
+#[derive(Accounts)]
+pub struct ClaimAdmin<'info> {
+    #[account(
+        mut,
+        // 簽名的必須是 pool_state 中記錄的 pending_admin
+        constraint = pool_state.pending_admin == Some(pending_admin.key()) @ AmmError::Unauthorized
+    )]
+    pub pool_state: Account<'info, PoolState>,
+    
+    // 必須是新管理員簽名
+    pub pending_admin: Signer<'info>, 
 }

@@ -33,6 +33,7 @@ describe("remove-liquidity", () => {
   let lpMint: anchor.web3.PublicKey;
   let blackHoleLpAta: anchor.web3.PublicKey;
   let userLpAta: anchor.web3.PublicKey;
+  let protocolFeeRecipientAta: anchor.web3.PublicKey;
 
   before(async () => {
     // 2. 环境初始化：创建代币和账户
@@ -119,6 +120,17 @@ describe("remove-liquidity", () => {
       )
     ).address;
 
+    // 获取协议费接收者地址并创建 ATA
+    const state = await program.account.poolState.fetch(poolState);
+    protocolFeeRecipientAta = (
+      await getOrCreateAssociatedTokenAccount(
+        provider.connection,
+        user,
+        lpMint,
+        state.protocolFeeRecipient
+      )
+    ).address;
+
     const depositA = 10_000_000; // 10 A (mintA decimals=6)
     const depositB = 10_000_000; // 10 B (mintB decimals=6)
 
@@ -135,6 +147,7 @@ describe("remove-liquidity", () => {
         lpMint,
         userLpTokenATA: userLpAta,
         blackHoleLpAta: blackHoleLpAta,
+        protocolFeeRecipient: protocolFeeRecipientAta,
         associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
         systemProgram: anchor.web3.SystemProgram.programId,
         tokenProgram: TOKEN_PROGRAM_ID,
@@ -186,6 +199,7 @@ describe("remove-liquidity", () => {
         user: user.publicKey,
         lpMint,
         userLpTokenATA: userLpAta,
+        protocolFeeRecipient: protocolFeeRecipientAta,
         associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
         systemProgram: anchor.web3.SystemProgram.programId,
         tokenProgram: TOKEN_PROGRAM_ID,

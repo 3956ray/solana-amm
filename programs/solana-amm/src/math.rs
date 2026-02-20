@@ -103,3 +103,38 @@ pub fn update_twap(
     // 3. 无论是否更新累加器，都要更新最后的时间戳
     pool_state.block_timestamp_last = current_timestamp;
 }
+
+// 计算协议抽成
+pub fn calculate_protocol_fee_mint(
+    reserve_a: u64,
+    reserve_b: u64,
+    k_last: u128,
+    lp_supply: u64,
+    fee_share: u64, // 公式中的 phi
+) -> Option<u64> {
+    if fee_share == 0 || k_last == 0 {
+        return Some(0);
+    }
+
+    // 计算当前的root_k = sqrt(reserve_a * reserve_b)
+    let k_curr = (reserve_a as u128).checked_mul(reserve_b as u128)?;
+    let root_k = sqrt_u128(k_curr)? as u128;
+    let root_k_last = sqrt_u128(k_last)? as u128;
+
+    if root_k > root_k_last {
+        // 按照公式计算
+        // 分子 = lp_supply * (root_k - root_k_last)
+        let numerator = (lp_supply as u128)
+            .checked_mul(root_k.checked_sub(root_k_last)?)?;
+        
+        // 分母 = (phi * root_k) + root_k_last
+        let denominator = (fee_share as u128)
+            .checked_mul(root_k)?
+            .checked_add(root_k_last)?;
+
+        let amount = numerator.checked_div(denominator)?;
+        return Some(amount as u64);
+    }
+
+    Some(0)
+}

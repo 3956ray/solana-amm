@@ -19,4 +19,8 @@ pub enum AmmError {
     SlippageExceeded,
     #[msg("初始流动性太低")]
     InitialLiquidityTooLow,
+    #[msg("无权限操作")]
+    Unauthorized,
+    #[msg("手续费配置不合法：抽成不能超过50%")]
+    InvalidFeeConfig,
 }

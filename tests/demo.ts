@@ -41,6 +41,7 @@ describe("Demo - Solana AMM 完整演示", () => {
   let lpMint: anchor.web3.PublicKey;
   let userLpAta: anchor.web3.PublicKey;
   let blackHoleLpAta: anchor.web3.PublicKey;
+  let protocolFeeRecipientAta: anchor.web3.PublicKey;
 
   // 黑洞地址（Pubkey::default() = 全零地址）
   const BLACK_HOLE_OWNER = new anchor.web3.PublicKey("11111111111111111111111111111111");
@@ -263,6 +264,17 @@ describe("Demo - Solana AMM 完整演示", () => {
       )
     ).address;
 
+    // 获取协议费接收者地址并创建 ATA
+    const state = await program.account.poolState.fetch(poolState);
+    protocolFeeRecipientAta = (
+      await getOrCreateAssociatedTokenAccount(
+        provider.connection,
+        user,
+        lpMint,
+        state.protocolFeeRecipient
+      )
+    ).address;
+
     const depositA = 100_000_000; // 100 Token A
     const depositB = 100_000_000; // 100 Token B
     const MINIMUM_LIQUIDITY = 1000n;
@@ -292,6 +304,7 @@ describe("Demo - Solana AMM 完整演示", () => {
         lpMint,
         userLpTokenATA: userLpAta,
         blackHoleLpAta: blackHoleLpAta,
+        protocolFeeRecipient: protocolFeeRecipientAta,
         associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
         systemProgram: anchor.web3.SystemProgram.programId,
         tokenProgram: TOKEN_PROGRAM_ID,

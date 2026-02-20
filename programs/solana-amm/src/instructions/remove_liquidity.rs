@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::{self, Burn, Transfer};
+use anchor_spl::token::{self, Burn, MintTo, Transfer};
 
 use crate::contexts::RemoveLiquidity;
 use crate::errors::AmmError;
@@ -47,6 +47,33 @@ pub fn remove_liquidity(
         current_timestamp,
     );
 
+    // 跟add_liquidity的思路一样，计算协议方应该销毁多少LP
+    let protocol_mint_amount = math::calculate_protocol_fee_mint(
+        ctx.accounts.token_a_vault.amount,
+        ctx.accounts.token_b_vault.amount,
+        ctx.accounts.pool_state.k_last,
+        ctx.accounts.lp_mint.supply,
+        ctx.accounts.pool_state.protocol_fee_share,
+    ).unwrap_or(0);
+
+    if protocol_mint_amount > 0 {
+        let cpi_accounts_mint_to_protocol = MintTo {
+            mint: ctx.accounts.lp_mint.to_account_info(),
+            to: ctx.accounts.protocol_fee_recipient.to_account_info(),
+            authority: ctx.accounts.pool_authority.to_account_info(),
+        };
+        let cpi_ctx_mint_to_protocol = CpiContext::new_with_signer(
+            token_program.clone(),
+            cpi_accounts_mint_to_protocol,
+            signer_seeds,
+        );
+        token::mint_to(cpi_ctx_mint_to_protocol, protocol_mint_amount)?;
+        msg!("Protocol mint amount: {}", protocol_mint_amount);
+    }
+
+    let total_lp_supply = ctx.accounts.lp_mint.supply.checked_add(protocol_mint_amount).ok_or(AmmError::MathOverflow)?;
+    msg!("Total LP supply: {}", total_lp_supply);
+    
     // 计算用户分别获得多少token a和b
     // 根据用户输入的 amount_lp 计算比例
     // 计算公式以a为例子，就是 user_get_amount_a = amount_lp * (token_a_vault.amount / lp_mint.supply)
@@ -54,13 +81,13 @@ pub fn remove_liquidity(
     let user_get_amount_a = (amount_lp as u128)
         .checked_mul(ctx.accounts.token_a_vault.amount as u128)
         .ok_or(AmmError::MathOverflow)?
-        .checked_div(ctx.accounts.lp_mint.supply as u128)
+        .checked_div(total_lp_supply as u128)
         .ok_or(AmmError::MathOverflow)? as u64;
     
     let user_get_amount_b = (amount_lp as u128)
         .checked_mul(ctx.accounts.token_b_vault.amount as u128)
         .ok_or(AmmError::MathOverflow)?
-        .checked_div(ctx.accounts.lp_mint.supply as u128)
+        .checked_div(total_lp_supply as u128)
         .ok_or(AmmError::MathOverflow)? as u64;
     
     // 检查用户获得的token a和b是否大于最小值（滑点保护）
@@ -72,6 +99,22 @@ pub fn remove_liquidity(
         user_get_amount_b >= min_amount_b,
         AmmError::SlippageExceeded
     );
+
+    // 计算k_last
+    // 扣除掉发给用户的钱后的新储备金计算 K
+    // transfer 发生之前，token_a_vault.amount 拿到的还是旧余额
+    // 这里手动计算"预期的未来余额"来更新 k_last，保证了状态更新的原子性
+    let new_reserve_a = ctx.accounts.token_a_vault.amount
+        .checked_sub(user_get_amount_a)
+        .ok_or(AmmError::MathOverflow)?;
+    let new_reserve_b = ctx.accounts.token_b_vault.amount
+        .checked_sub(user_get_amount_b)
+        .ok_or(AmmError::MathOverflow)?;
+    ctx.accounts.pool_state.k_last = (new_reserve_a as u128)
+        .checked_mul(new_reserve_b as u128)
+        .ok_or(AmmError::MathOverflow)?;
+    msg!("New k_last: {}", ctx.accounts.pool_state.k_last);
+
 
     // 先将lp_mint的token从用户账户burn掉
     // Burn 指令只需要 mint、from 和 authority，不需要 to 账户
@@ -112,5 +155,7 @@ pub fn remove_liquidity(
     token::transfer(cpi_ctx_vault_to_user_b, user_get_amount_b)?;
 
     msg!("Remove liquidity completed: {} LP -> {} A, {} B", amount_lp, user_get_amount_a, user_get_amount_b);
+    
+    
     Ok(())
 }

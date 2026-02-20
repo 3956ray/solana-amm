@@ -59,4 +59,27 @@ pub mod solana_amm {
     ) -> Result<()> {
         instructions::remove_liquidity(ctx, amount_lp, min_amount_a, min_amount_b)
     }
+
+    /// 更新池子配置
+    pub fn update_config(
+        ctx: Context<UpdateConfig>,
+        new_admin: Option<Pubkey>,
+        new_recipient: Option<Pubkey>,
+        new_share: Option<u64>,
+    ) -> Result<()> {
+        instructions::update_config(ctx, new_admin, new_recipient, new_share)
+    }
+
+    pub fn claim_admin(ctx: Context<ClaimAdmin>) -> Result<()> {
+    let pool_state = &mut ctx.accounts.pool_state;
+    
+    // 正式移交權限
+    pool_state.admin = ctx.accounts.pending_admin.key();
+    
+    // 清空暫存位
+    pool_state.pending_admin = None;
+    
+    msg!("管理權限已正式移交至: {:?}", pool_state.admin);
+    Ok(())
+}
 }

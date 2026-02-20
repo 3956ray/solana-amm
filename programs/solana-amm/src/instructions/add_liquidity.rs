@@ -46,7 +46,41 @@ pub fn add_liquidity(
         current_timestamp,
     );
 
-    if ctx.accounts.lp_mint.supply == 0 {
+    // 计算应该给协议方增发多少LP
+    // 调用 token::mint_to 给 protocol_fee_recipient 铸造 LP
+    // 更新 pool_state.k_last = reserve_a * reserve_b，作为下次结算的基准
+
+    let protocol_mint_amount = math::calculate_protocol_fee_mint(
+        ctx.accounts.token_a_vault.amount,
+        ctx.accounts.token_b_vault.amount,
+        ctx.accounts.pool_state.k_last,
+        ctx.accounts.lp_mint.supply,
+        ctx.accounts.pool_state.protocol_fee_share,
+    ).unwrap_or(0);
+
+    if protocol_mint_amount > 0 {
+        let cpi_accounts_mint_to_protocol = MintTo {
+            mint: ctx.accounts.lp_mint.to_account_info(),
+            to: ctx.accounts.protocol_fee_recipient.to_account_info(),
+            authority: ctx.accounts.pool_authority.to_account_info(),
+        };
+        let cpi_ctx_mint_to_protocol = CpiContext::new_with_signer(
+            token_program.clone(),
+            cpi_accounts_mint_to_protocol,
+            signer_seeds,
+        );
+        token::mint_to(cpi_ctx_mint_to_protocol, protocol_mint_amount)?;
+        msg!("Protocol mint amount: {}", protocol_mint_amount);
+    }
+
+    // 计算包含协议费后的总 LP 供应量（用于后续流动性计算）
+    let total_lp_supply = lp_mint_supply.checked_add(protocol_mint_amount).ok_or(AmmError::MathOverflow)?;
+    msg!("Total LP supply (after protocol fee): {}", total_lp_supply);
+
+    // 注意：在协议费 mint 之前，需要先检查是否是首次添加流动性
+    // 使用保存的 lp_mint_supply 而不是 ctx.accounts.lp_mint.supply
+    // 因为后续的协议费 mint 会改变 supply
+    if lp_mint_supply == 0 {
         // 注释掉 PreciseNumber 的原因：CU 溢出
         // PreciseNumber 的计算开销过大，会导致程序消耗超过 200000 CU 的限制
         // 改用自定义的轻量级 sqrt_product_u64 函数来计算 sqrt(amount_a * amount_b)
@@ -87,8 +121,17 @@ pub fn add_liquidity(
         // 这里是不为0的情况，也就是说已经存在了流动性
         // 计算在现有的流动性池中，应该怎么计算用户应该提供多少lp_mint的token
         // 根据两个资产的存入比例，分别计算出"如果按 A 算该给多少 LP"和"如果按 B 算该给多少 LP"，然后取其中的最小值
-        let liquidity_a = (amount_a as u128).checked_mul(lp_mint_supply as u128).ok_or(AmmError::MathOverflow)?.checked_div(ctx.accounts.token_a_vault.amount as u128).ok_or(AmmError::MathOverflow)? as u64;
-        let liquidity_b = (amount_b as u128).checked_mul(lp_mint_supply as u128).ok_or(AmmError::MathOverflow)?.checked_div(ctx.accounts.token_b_vault.amount as u128).ok_or(AmmError::MathOverflow)? as u64;
+        // 注意：使用 total_lp_supply（包含协议费后的总供应量）来计算，确保新用户不会白嫖已积累的手续费
+        let liquidity_a = (amount_a as u128)
+            .checked_mul(total_lp_supply as u128)
+            .ok_or(AmmError::MathOverflow)?
+            .checked_div(ctx.accounts.token_a_vault.amount as u128)
+            .ok_or(AmmError::MathOverflow)? as u64;
+        let liquidity_b = (amount_b as u128)
+            .checked_mul(total_lp_supply as u128)
+            .ok_or(AmmError::MathOverflow)?
+            .checked_div(ctx.accounts.token_b_vault.amount as u128)
+            .ok_or(AmmError::MathOverflow)? as u64;
         liquidity = liquidity_a.min(liquidity_b);
         msg!("Liquidity: {}", liquidity);
     }
@@ -125,5 +168,17 @@ pub fn add_liquidity(
     token::mint_to(cpi_ctx_mint_to_user, liquidity)?;
 
     msg!("Add liquidity completed: {} -> {}", amount_a, amount_b);
+
+    // 计算k_last
+    let new_reserve_a = ctx.accounts.token_a_vault.amount
+        .checked_add(amount_a)
+        .ok_or(AmmError::MathOverflow)?;
+    let new_reserve_b = ctx.accounts.token_b_vault.amount
+        .checked_add(amount_b)
+        .ok_or(AmmError::MathOverflow)?;
+    ctx.accounts.pool_state.k_last = (new_reserve_a as u128)
+        .checked_mul(new_reserve_b as u128)
+        .ok_or(AmmError::MathOverflow)?;
+    msg!("New k_last: {}", ctx.accounts.pool_state.k_last);
     Ok(())
 }

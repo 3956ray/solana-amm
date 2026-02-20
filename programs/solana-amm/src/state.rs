@@ -21,6 +21,15 @@ pub struct PoolState {
     pub block_timestamp_last: u64,       // 记录上次更新的时间戳
     pub price_a_cumulative_last: u128,  // Token A 的累计价格
     pub price_b_cumulative_last: u128,  // Token B 的累计价格
+
+    // --- 协议治理 ---
+    pub admin: Pubkey,                      // 管理员地址
+    pub pending_admin: Option<Pubkey>,      // 待定管理員
+    pub protocol_fee_recipient: Pubkey,     // 协议收入接收地址
+    pub protocol_fee_share: u64,    // 协议分成比例 (比如 1/6，建议设为分母，0表示关闭)
+    
+    // --- 营收结算核心 ---
+    pub k_last: u128,               // 上次结算时的储备金乘积 (reserve_a * reserve_b)
 }
 
 impl PoolState {
@@ -46,5 +55,10 @@ impl PoolState {
             .saturating_add(U128_SIZE)   // price_a_cumulative_last (u128)
             .saturating_add(U128_SIZE)   // price_b_cumulative_last (u128)
             .saturating_add(U64_SIZE)    // block_timestamp_last
+            .saturating_add(PUBKEY_SIZE) // admin
+            .saturating_add(1 + PUBKEY_SIZE) // pending_admin (Option<Pubkey>: 1 byte discriminator + 32 bytes)
+            .saturating_add(PUBKEY_SIZE) // protocol_fee_recipient
+            .saturating_add(U64_SIZE)    // protocol_fee_share
+            .saturating_add(U128_SIZE)   // k_last
     }
 }
