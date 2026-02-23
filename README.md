@@ -22,6 +22,8 @@
 - ✅ **TWAP 价格预言机**：提供时间加权平均价格（TWAP）功能
 - ✅ **PDA 账户模型**：采用 Solana 的 PDA（Program Derived Address）模式
 - ✅ **安全设计**：完整的账户验证和权限控制
+- ✅ **protocol营收** 效仿 Uniswap V2，通过计算 $\sqrt{k}$ 的增长，在不消耗额外转账 Gas 的情况下实现协议手续费（Protocol Fee）的无感增发结算。
+- ✅ **两步骤的治理方案**实现了 `Nominate` & `Claim` 两阶段管理权限转移，杜绝管理员误操作导致合约锁死的风险。
 
 ## 🔧 环境需求
 
