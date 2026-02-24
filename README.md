@@ -317,6 +317,7 @@ solana-amm/
 
 ## 📚 相关文档
 
+- **[项目开发状态总览（单文件速览，供 LLM/接手者）](./doc/PROJECT_STATUS_LLM.md)** — 一文件掌握架构、指令、状态、测试与已知问题
 - [产品需求文档](./doc/prd.md)
 - [学习笔记](./doc/learning.md)
 
