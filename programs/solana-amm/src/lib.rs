@@ -14,7 +14,7 @@ pub use errors::AmmError;
 // 在程序模块内使用账户结构体
 use contexts::*;
 
-declare_id!("BBHVgLFdpYmd6SsCXDXqC4FT6NB1f1KXg9C7XmXFTVYS");
+declare_id!("3urPFjzfHCS8K37dh2yqvavsQPdmEa5H6pLuv8xWpQXP");
 
 #[program]
 pub mod solana_amm {

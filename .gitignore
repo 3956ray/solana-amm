@@ -8,5 +8,8 @@ test-ledger
 
 .cursorrules
 experience.log
+phantom-keypair.json
+convert.js
+.vscode/
 
 doc/

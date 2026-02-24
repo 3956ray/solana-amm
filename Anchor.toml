@@ -5,15 +5,15 @@ package_manager = "yarn"
 resolution = true
 skip-lint = false
 
-[programs.localnet]
-solana_amm = "BBHVgLFdpYmd6SsCXDXqC4FT6NB1f1KXg9C7XmXFTVYS"
+[programs.devnet]
+solana_amm = "3urPFjzfHCS8K37dh2yqvavsQPdmEa5H6pLuv8xWpQXP"
 
 [registry]
 url = "https://api.apr.dev"
 
 [provider]
-cluster = "localnet"
-wallet = "~/.config/solana/id.json"
+cluster = "devnet"
+wallet = "./phantom-keypair.json"
 
 [test]
 startup_wait = 10000
